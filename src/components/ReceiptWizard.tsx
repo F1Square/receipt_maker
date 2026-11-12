@@ -24,7 +24,6 @@ import {
 import {
   emptyDraft,
   emptySettings,
-  isSettingsComplete,
   type AppSettings,
   type GoodsLine,
   type InvoiceDraft,
@@ -37,6 +36,7 @@ import {
   validateGoods,
   validateInvoiceMeta,
   validateInvoiceTo,
+  validateSettings,
 } from "@/lib/validation";
 import { FormField } from "./FormField";
 import { SettingsPanel } from "./SettingsPanel";
@@ -81,7 +81,7 @@ export function ReceiptWizard() {
       goods: normalizeLoadedGoods(nextDraft.goods),
     });
     setHydrated(true);
-    if (!isSettingsComplete(nextSettings)) {
+    if (validateSettings(nextSettings)) {
       setSettingsOpen(true);
     }
   }, []);
@@ -92,7 +92,8 @@ export function ReceiptWizard() {
   }, [draft, hydrated]);
 
   const totals = useMemo(() => computeTotals(draft.goods), [draft.goods]);
-  const profileReady = isSettingsComplete(settings);
+  const profileError = validateSettings(settings);
+  const profileReady = !profileError;
 
   function updateInvoiceTo<K extends keyof InvoiceDraft["invoiceTo"]>(
     key: K,
@@ -142,7 +143,10 @@ export function ReceiptWizard() {
 
   function validateStep(index: number): string | null {
     if (!profileReady) {
-      return "Save business and bank details first (Update profile).";
+      return (
+        profileError ||
+        "Save business and bank details first (Update profile)."
+      );
     }
     if (index === 0) return validateInvoiceTo(draft.invoiceTo);
     if (index === 1) return validateInvoiceMeta(draft.invoice);
@@ -226,6 +230,11 @@ export function ReceiptWizard() {
         anchor.download = filename;
         anchor.click();
         URL.revokeObjectURL(url);
+        // Fresh invoice after each successful PDF download.
+        clearDraft();
+        setDraft(emptyDraft());
+        setStep(0);
+        setError("");
       } catch (err) {
         setError(err instanceof Error ? err.message : "Download failed.");
       }
@@ -580,7 +589,7 @@ export function ReceiptWizard() {
                     <p className="font-semibold">{settings.business.name}</p>
                     <p>{settings.business.address}</p>
                     <p>Contact: {settings.business.contactNo}</p>
-                    <p>GSTIN: {settings.business.gstin}</p>
+                    <p>GST / PAN: {settings.business.gstin}</p>
                     <button
                       type="button"
                       onClick={() => setSettingsOpen(true)}

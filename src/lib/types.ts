@@ -123,16 +123,3 @@ export function emptyReceipt(): ReceiptData {
   };
 }
 
-export function isSettingsComplete(settings: AppSettings): boolean {
-  const { business, bank } = settings;
-  return Boolean(
-    business.name.trim() &&
-      business.address.trim() &&
-      business.contactNo.trim() &&
-      business.gstin.trim() &&
-      bank.bankName.trim() &&
-      bank.accountHolderName.trim() &&
-      bank.accountNo.trim() &&
-      bank.ifscCode.trim(),
-  );
-}

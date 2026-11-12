@@ -10,57 +10,75 @@ import {
   computeTotals,
 } from "./calculations";
 import type { ReceiptData } from "./types";
+import { formatIndianPhoneDisplay } from "./validation";
 
-const FONT_REGULAR = "InvoiceSans";
-const FONT_BOLD = "InvoiceSans-Bold";
+/**
+ * Layout measured from the demo Excel tax invoice (letter page).
+ * The invoice is a compact bordered form — not a full-page box.
+ */
+const LAYOUT = {
+  left: 18.2,
+  right: 591.1,
+  top: 54.2,
+  bottom: 498.2,
+  // Vertical splits
+  metaMid: 408.5,
+  cols: {
+    sr: 18.2,
+    desc: 115.0,
+    hsn: 302.2,
+    qty: 408.5,
+    rate: 464.6,
+    amount: 520.8,
+  },
+  // Horizontal bands
+  headerBottom: 107.8,
+  metaTitleBottom: 120.2,
+  metaBottom: 180.7,
+  infoTitleBottom: 193.2,
+  tableHeaderBottom: 205.7,
+  goodsBottom: 362.2,
+  bankBottom: 424.6,
+  termsTitleBottom: 437.8,
+  // Totals row pitch on the right
+  totalsRow: 12.45,
+} as const;
 
-function drawRect(
-  doc: PDFKit.PDFDocument,
-  x: number,
-  y: number,
-  w: number,
-  h: number,
-) {
-  doc.rect(x, y, w, h).stroke();
-}
+const FONT_REGULAR = "InvoiceArial";
+const FONT_BOLD = "InvoiceArial-Bold";
+const FONT_RUPEE = "InvoiceRupee";
 
 function hLine(doc: PDFKit.PDFDocument, x1: number, x2: number, y: number) {
-  doc
-    .moveTo(x1, y)
-    .lineTo(x2, y)
-    .stroke();
+  doc.moveTo(x1, y).lineTo(x2, y).stroke();
 }
 
 function vLine(doc: PDFKit.PDFDocument, x: number, y1: number, y2: number) {
-  doc
-    .moveTo(x, y1)
-    .lineTo(x, y2)
-    .stroke();
-}
-
-function fitText(
-  doc: PDFKit.PDFDocument,
-  text: string,
-  x: number,
-  y: number,
-  width: number,
-  options: PDFKit.Mixins.TextOptions = {},
-) {
-  doc.text(text || "", x, y, { width, ...options });
+  doc.moveTo(x, y1).lineTo(x, y2).stroke();
 }
 
 function money(value: number): string {
   return formatInr(value, "rupee");
 }
 
+function text(
+  doc: PDFKit.PDFDocument,
+  value: string,
+  x: number,
+  y: number,
+  width: number,
+  options: PDFKit.Mixins.TextOptions = {},
+) {
+  doc.text(value || "", x, y, {
+    width,
+    lineGap: 1,
+    ...options,
+  });
+}
+
 export async function generateInvoicePdf(data: ReceiptData): Promise<Buffer> {
   const totals = computeTotals(data.goods);
-  const margin = 28;
-  const pageWidth = 612;
-  const pageHeight = 792;
-  const contentWidth = pageWidth - margin * 2;
-  const left = margin;
-  const right = pageWidth - margin;
+  const L = LAYOUT;
+  const width = L.right - L.left;
 
   const doc = new PDFDocument({
     size: "LETTER",
@@ -72,237 +90,269 @@ export async function generateInvoicePdf(data: ReceiptData): Promise<Buffer> {
   });
 
   const fontDir = path.join(process.cwd(), "public", "fonts");
-  doc.registerFont(FONT_REGULAR, path.join(fontDir, "DejaVuSans.ttf"));
-  doc.registerFont(FONT_BOLD, path.join(fontDir, "DejaVuSans-Bold.ttf"));
+  doc.registerFont(FONT_REGULAR, path.join(fontDir, "Arial.ttf"));
+  doc.registerFont(FONT_BOLD, path.join(fontDir, "Arial_Bold.ttf"));
+  // DejaVu keeps the ₹ glyph reliable in PDF output.
+  doc.registerFont(FONT_RUPEE, path.join(fontDir, "DejaVuSans.ttf"));
 
   const chunks: Buffer[] = [];
   doc.on("data", (chunk: Buffer) => chunks.push(chunk));
-
   const done = new Promise<Buffer>((resolve, reject) => {
     doc.on("end", () => resolve(Buffer.concat(chunks)));
     doc.on("error", reject);
   });
 
-  doc.lineWidth(1);
-  doc.strokeColor("#111111");
-  doc.fillColor("#111111");
+  // Match Excel medium grid: thin black strokes, not heavy UI borders.
+  doc.lineWidth(0.75);
+  doc.strokeColor("#000000");
+  doc.fillColor("#000000");
 
-  // Outer border
-  const outerTop = 24;
-  const outerBottom = pageHeight - 24;
-  drawRect(doc, left, outerTop, contentWidth, outerBottom - outerTop);
+  // Outer compact invoice box (same footprint as demo).
+  doc.rect(L.left, L.top, width, L.bottom - L.top).stroke();
 
-  // Header band
-  const headerTop = outerTop;
-  const headerBottom = 118;
-  hLine(doc, left, right, headerBottom);
+  // --- Header ---
+  doc.font(FONT_BOLD).fontSize(10);
+  text(doc, "TAX INVOICE", L.left + 6, L.top + 4, 140);
 
-  doc.font(FONT_BOLD).fontSize(11);
-  doc.text("TAX INVOICE", left + 8, headerTop + 8, { width: 160 });
-  doc.font(FONT_REGULAR).fontSize(9);
-  doc.text("Original for Recipient", right - 140, headerTop + 10, {
-    width: 132,
+  doc.font(FONT_REGULAR).fontSize(8);
+  text(doc, "Original for Recipient", L.right - 130, L.top + 5, 124, {
     align: "right",
   });
 
-  doc.font(FONT_BOLD).fontSize(16);
-  doc.text(data.business.name.toUpperCase() || "BUSINESS NAME", left + 8, 48, {
-    width: contentWidth - 16,
-    align: "center",
-  });
+  // Fixed header rhythm (matches demo): name → address → contact/GST-PAN, all above the rule.
+  const headerInnerLeft = L.left + 16;
+  const headerInnerWidth = width - 32;
 
-  doc.font(FONT_REGULAR).fontSize(9);
-  doc.text(data.business.address || "", left + 20, 72, {
-    width: contentWidth - 40,
-    align: "center",
-  });
-  doc.text(
-    `Contact No. : ${data.business.contactNo || ""}   GSTIN : ${data.business.gstin || ""}`,
-    left + 20,
-    96,
-    { width: contentWidth - 40, align: "center" },
+  doc.font(FONT_BOLD).fontSize(13);
+  text(
+    doc,
+    (data.business.name || "BUSINESS NAME").toUpperCase(),
+    L.left + 8,
+    L.top + 16,
+    width - 16,
+    { align: "center", height: 14, ellipsis: true },
   );
 
-  // Invoice To / Invoice Details
-  const metaTop = headerBottom;
-  const metaBottom = 236;
-  const midX = left + contentWidth / 2;
-  hLine(doc, left, right, metaBottom);
-  vLine(doc, midX, metaTop, metaBottom);
+  doc.font(FONT_REGULAR).fontSize(8);
+  text(
+    doc,
+    (data.business.address || "").trim(),
+    headerInnerLeft,
+    L.top + 32,
+    headerInnerWidth,
+    { align: "center", height: 10, ellipsis: true },
+  );
 
-  doc.font(FONT_BOLD).fontSize(10);
-  doc.text("INVOICE TO DETAILS :-", left + 8, metaTop + 8);
-  doc.text("Invoice Details :-", midX + 8, metaTop + 8);
+  const contact = formatIndianPhoneDisplay(data.business.contactNo || "");
+  const gstPan = (data.business.gstin || "").trim().toUpperCase();
+  const contactGstLine = `Contact No. : ${contact}    GST / PAN : ${gstPan}`;
+  text(doc, contactGstLine, headerInnerLeft, L.top + 44, headerInnerWidth, {
+    align: "center",
+    height: 10,
+    ellipsis: true,
+  });
 
-  const leftLabels = [
-    ["Name :", data.invoiceTo.name],
-    ["Address :", data.invoiceTo.address],
-    ["GSTIN / PAN :", data.invoiceTo.gstinPan],
-    ["Contact No. :", data.invoiceTo.contactNo],
-  ] as const;
+  hLine(doc, L.left, L.right, L.headerBottom);
 
-  const rightLabels = [
+  // --- Invoice To / Invoice Details ---
+  vLine(doc, L.metaMid, L.headerBottom, L.metaBottom);
+  hLine(doc, L.left, L.right, L.metaTitleBottom);
+  hLine(doc, L.left, L.right, L.metaBottom);
+
+  doc.font(FONT_BOLD).fontSize(9);
+  text(doc, "INVOICE TO DETAILS :-", L.left + 6, L.headerBottom + 3, 200);
+  text(doc, "Invoice Details :-", L.metaMid + 6, L.headerBottom + 3, 160);
+
+  const leftFields: Array<[string, string, number]> = [
+    ["Name :", data.invoiceTo.name, L.metaTitleBottom + 4],
+    ["Address :", data.invoiceTo.address, L.metaTitleBottom + 16],
+    ["GSTIN / PAN :", data.invoiceTo.gstinPan, L.metaTitleBottom + 40],
+    ["Contact No. :", data.invoiceTo.contactNo, L.metaTitleBottom + 52],
+  ];
+
+  doc.font(FONT_REGULAR).fontSize(8);
+  leftFields.forEach(([label, value, y]) => {
+    doc.font(FONT_BOLD).fontSize(8);
+    text(doc, label, L.left + 6, y, 78);
+    doc.font(FONT_REGULAR).fontSize(8);
+    text(doc, value, L.left + 84, y, L.metaMid - L.left - 90, {
+      height: label.startsWith("Address") ? 22 : 11,
+    });
+  });
+
+  const rightFields: Array<[string, string]> = [
     ["Invoice Date :", formatInvoiceDate(data.invoice.invoiceDate, "")],
     ["Invoice No. :", data.invoice.invoiceNo],
     ["Challan Date :", formatInvoiceDate(data.invoice.challanDate, "")],
     ["Challan No. :", data.invoice.challanNo],
     ["State :", data.invoice.state],
-  ] as const;
+  ];
 
-  doc.font(FONT_REGULAR).fontSize(9);
-  // Keep invoice-to rows spaced so Address can wrap onto two lines.
-  const leftRowY = [metaTop + 28, metaTop + 50, metaTop + 86, metaTop + 108];
-  leftLabels.forEach(([label, value], index) => {
-    const y = leftRowY[index];
-    doc.font(FONT_REGULAR).text(label, left + 8, y, { width: 78 });
-    fitText(doc, value, left + 90, y, midX - left - 98, {
-      height: index === 1 ? 32 : 16,
-    });
-  });
-
-  rightLabels.forEach(([label, value], index) => {
-    const y = metaTop + 28 + index * 18;
-    doc.font(FONT_REGULAR).text(label, midX + 8, y, { width: 90 });
-    doc.text(value || "", midX + 100, y, {
-      width: right - midX - 108,
+  rightFields.forEach(([label, value], index) => {
+    const y = L.metaTitleBottom + 4 + index * 11.5;
+    doc.font(FONT_REGULAR).fontSize(8);
+    text(doc, label, L.metaMid + 6, y, 78);
+    text(doc, value, L.metaMid + 84, y, L.right - L.metaMid - 90, {
       align: "right",
     });
   });
 
-  // Invoice information title
-  const tableTitleTop = metaBottom;
-  const tableTitleBottom = metaBottom + 22;
-  hLine(doc, left, right, tableTitleBottom);
-  doc.font(FONT_BOLD).fontSize(10);
-  doc.text("INVOICE INFORMATION", left, tableTitleTop + 6, {
-    width: contentWidth,
+  // --- Invoice information title + column headers ---
+  hLine(doc, L.left, L.right, L.infoTitleBottom);
+  doc.font(FONT_BOLD).fontSize(9);
+  text(doc, "INVOICE INFORMATION", L.left, L.metaBottom + 3.5, width, {
     align: "center",
   });
 
-  // Table header
-  const col = {
-    sr: left,
-    desc: left + 48,
-    hsn: left + 250,
-    qty: left + 318,
-    rate: left + 382,
-    amount: left + 456,
-  };
-  const tableHeaderBottom = tableTitleBottom + 22;
-  hLine(doc, left, right, tableHeaderBottom);
-  vLine(doc, col.desc, tableTitleBottom, tableHeaderBottom);
-  vLine(doc, col.hsn, tableTitleBottom, tableHeaderBottom);
-  vLine(doc, col.qty, tableTitleBottom, tableHeaderBottom);
-  vLine(doc, col.rate, tableTitleBottom, tableHeaderBottom);
-  vLine(doc, col.amount, tableTitleBottom, tableHeaderBottom);
+  hLine(doc, L.left, L.right, L.tableHeaderBottom);
+
+  const colXs = [
+    L.cols.desc,
+    L.cols.hsn,
+    L.cols.qty,
+    L.cols.rate,
+    L.cols.amount,
+  ];
+  colXs.forEach((x) => vLine(doc, x, L.infoTitleBottom, L.goodsBottom));
 
   doc.font(FONT_BOLD).fontSize(8);
-  doc.text("SR. No.", col.sr + 4, tableTitleBottom + 7, { width: 40, align: "center" });
-  doc.text("Description of Goods", col.desc + 4, tableTitleBottom + 7, {
-    width: col.hsn - col.desc - 8,
+  text(doc, "SR. No.", L.cols.sr + 2, L.infoTitleBottom + 3.5, 90, {
     align: "center",
   });
-  doc.text("HSN/SAC", col.hsn + 2, tableTitleBottom + 7, {
-    width: col.qty - col.hsn - 4,
-    align: "center",
-  });
-  doc.text("Qty", col.qty + 2, tableTitleBottom + 7, {
-    width: col.rate - col.qty - 4,
-    align: "center",
-  });
-  doc.text("Rate", col.rate + 2, tableTitleBottom + 7, {
-    width: col.amount - col.rate - 4,
-    align: "center",
-  });
-  doc.text("Amount", col.amount + 2, tableTitleBottom + 7, {
-    width: right - col.amount - 4,
-    align: "center",
-  });
+  text(
+    doc,
+    "Description of Goods",
+    L.cols.desc + 2,
+    L.infoTitleBottom + 3.5,
+    L.cols.hsn - L.cols.desc - 4,
+    { align: "center" },
+  );
+  text(
+    doc,
+    "HSN/SAC",
+    L.cols.hsn + 2,
+    L.infoTitleBottom + 3.5,
+    L.cols.qty - L.cols.hsn - 4,
+    { align: "center" },
+  );
+  text(
+    doc,
+    "Qty",
+    L.cols.qty + 2,
+    L.infoTitleBottom + 3.5,
+    L.cols.rate - L.cols.qty - 4,
+    { align: "center" },
+  );
+  text(
+    doc,
+    "Rate",
+    L.cols.rate + 2,
+    L.infoTitleBottom + 3.5,
+    L.cols.amount - L.cols.rate - 4,
+    { align: "center" },
+  );
+  text(
+    doc,
+    "Amount",
+    L.cols.amount + 2,
+    L.infoTitleBottom + 3.5,
+    L.right - L.cols.amount - 4,
+    { align: "center" },
+  );
 
-  // Goods rows area (fixed height like demo)
-  const goodsTop = tableHeaderBottom;
-  const goodsBottom = 470;
-  const rowCount = Math.max(data.goods.length, 8);
-  const rowHeight = (goodsBottom - goodsTop) / rowCount;
+  // Goods body (fixed empty area like demo)
+  hLine(doc, L.left, L.right, L.goodsBottom);
+  colXs.forEach((x) => vLine(doc, x, L.tableHeaderBottom, L.goodsBottom));
 
-  vLine(doc, col.desc, goodsTop, goodsBottom);
-  vLine(doc, col.hsn, goodsTop, goodsBottom);
-  vLine(doc, col.qty, goodsTop, goodsBottom);
-  vLine(doc, col.rate, goodsTop, goodsBottom);
-  vLine(doc, col.amount, goodsTop, goodsBottom);
-  hLine(doc, left, right, goodsBottom);
-
-  doc.font(FONT_REGULAR).fontSize(9);
+  doc.font(FONT_REGULAR).fontSize(8);
+  let printed = 0;
   data.goods.forEach((item, index) => {
-    const y = goodsTop + 8 + index * Math.min(rowHeight, 22);
+    if (!item.description.trim() && !Number(item.qty) && !Number(item.rate)) {
+      return;
+    }
+    const y = L.tableHeaderBottom + 5 + printed * 14;
+    printed += 1;
+    if (y > L.goodsBottom - 12) return;
     const amount = totals.lineAmounts[index] ?? 0;
-    doc.text(String(index + 1), col.sr + 4, y, { width: 40, align: "center" });
-    fitText(doc, item.description, col.desc + 6, y, col.hsn - col.desc - 12);
-    fitText(doc, item.hsnSac, col.hsn + 2, y, col.qty - col.hsn - 4, {
+    text(doc, String(printed), L.cols.sr + 2, y, 90, { align: "center" });
+    text(doc, item.description, L.cols.desc + 6, y, L.cols.hsn - L.cols.desc - 10);
+    text(doc, item.hsnSac, L.cols.hsn + 2, y, L.cols.qty - L.cols.hsn - 4, {
       align: "center",
     });
-    doc.text(formatQty(item.qty), col.qty + 2, y, {
-      width: col.rate - col.qty - 4,
+    text(doc, formatQty(item.qty), L.cols.qty + 2, y, L.cols.rate - L.cols.qty - 6, {
       align: "right",
     });
-    doc.text(formatRate(item.rate), col.rate + 2, y, {
-      width: col.amount - col.rate - 4,
-      align: "right",
-    });
-    doc.text(amount ? formatAmount(amount) : "", col.amount + 2, y, {
-      width: right - col.amount - 6,
-      align: "right",
-    });
+    text(
+      doc,
+      formatRate(item.rate),
+      L.cols.rate + 2,
+      y,
+      L.cols.amount - L.cols.rate - 6,
+      { align: "right" },
+    );
+    text(
+      doc,
+      amount ? formatAmount(amount) : "",
+      L.cols.amount + 2,
+      y,
+      L.right - L.cols.amount - 6,
+      { align: "right" },
+    );
   });
 
-  // Bottom section: bank + terms | totals + signature
-  const bottomTop = goodsBottom;
-  const totalsWidth = 220;
-  const totalsLeft = right - totalsWidth;
-  vLine(doc, totalsLeft, bottomTop, outerBottom);
+  // --- Bottom: bank/terms | totals/signature ---
+  vLine(doc, L.cols.qty, L.goodsBottom, L.bottom);
+  hLine(doc, L.left, L.cols.qty, L.bankBottom);
+  hLine(doc, L.left, L.cols.qty, L.termsTitleBottom);
 
-  const totalsRows: Array<[string, string, boolean?]> = [
+  // Totals rows (aligned under Qty/Rate/Amount)
+  const totalsRows: Array<[string, string]> = [
     ["Sub Total", money(totals.subTotal)],
     ["SGST 2.50%", money(totals.sgst)],
     ["CGST 2.50%", money(totals.cgst)],
     ["Taxable Amount", money(totals.taxableAmount)],
     ["Rounding Off", money(totals.roundingOff)],
-    ["Final Amount", money(totals.finalAmount), true],
+    ["Final Amount", money(totals.finalAmount)],
   ];
 
-  const totalsBlockHeight = 132;
-  totalsRows.forEach(([label, value, bold], index) => {
-    const y = bottomTop + index * 22;
-    if (index > 0) hLine(doc, totalsLeft, right, y);
-    doc.font(bold ? FONT_BOLD : FONT_REGULAR).fontSize(9);
-    doc.text(label, totalsLeft + 6, y + 6, { width: 108 });
-    doc.text(value, totalsLeft + 110, y + 6, {
-      width: totalsWidth - 118,
+  totalsRows.forEach(([label, value], index) => {
+    const y = L.goodsBottom + index * L.totalsRow;
+    const isFinal = index === totalsRows.length - 1;
+    if (index > 0) hLine(doc, L.cols.qty, L.right, y);
+    doc.font(isFinal ? FONT_BOLD : FONT_REGULAR).fontSize(8);
+    text(doc, label, L.cols.qty + 5, y + 3, 95);
+    doc.font(FONT_RUPEE).fontSize(isFinal ? 9 : 8);
+    text(doc, value, L.cols.qty + 100, y + 3, L.right - L.cols.qty - 106, {
       align: "right",
     });
   });
-  hLine(doc, totalsLeft, right, bottomTop + totalsBlockHeight);
+  hLine(doc, L.cols.qty, L.right, L.termsTitleBottom);
 
-  // Signature area
-  const signTop = bottomTop + totalsBlockHeight;
-  doc.font(FONT_REGULAR).fontSize(9);
-  doc.text(
+  // Signature block under totals
+  const signTop = L.termsTitleBottom;
+  doc.font(FONT_REGULAR).fontSize(8);
+  text(
+    doc,
     `For, ${(data.business.name || "BUSINESS NAME").toUpperCase()}`,
-    totalsLeft + 8,
-    signTop + 18,
-    { width: totalsWidth - 16, align: "right" },
+    L.cols.qty + 6,
+    signTop + 10,
+    L.right - L.cols.qty - 12,
+    { align: "right" },
   );
-  doc.text("Proprietor", totalsLeft + 8, outerBottom - 28, {
-    width: totalsWidth - 16,
+  text(doc, "Proprietor", L.cols.qty + 6, L.bottom - 16, L.right - L.cols.qty - 12, {
     align: "right",
   });
 
   // Bank details
-  doc.font(FONT_BOLD).fontSize(10);
-  doc.text("**Bank Details :-", left + 8, bottomTop + 10, {
-    width: totalsLeft - left - 16,
-    align: "center",
-  });
+  doc.font(FONT_BOLD).fontSize(9);
+  text(
+    doc,
+    "**Bank Details :-",
+    L.left + 6,
+    L.goodsBottom + 4,
+    L.cols.qty - L.left - 12,
+    { align: "center" },
+  );
 
   const bankRows = [
     ["Bank Name :", data.bank.bankName],
@@ -311,33 +361,44 @@ export async function generateInvoicePdf(data: ReceiptData): Promise<Buffer> {
     ["IFSC Code :", data.bank.ifscCode],
   ] as const;
 
-  doc.font(FONT_REGULAR).fontSize(9);
   bankRows.forEach(([label, value], index) => {
-    const y = bottomTop + 34 + index * 16;
-    doc.text(label, left + 10, y, { width: 130 });
-    fitText(doc, value, left + 140, y, totalsLeft - left - 150);
+    const y = L.goodsBottom + 18 + index * 11;
+    doc.font(FONT_REGULAR).fontSize(8);
+    text(doc, label, L.left + 8, y, 118);
+    text(doc, value, L.left + 126, y, L.cols.qty - L.left - 134);
   });
 
-  const termsTop = bottomTop + 110;
-  hLine(doc, left, totalsLeft, termsTop);
-  doc.font(FONT_BOLD).fontSize(10);
-  doc.text("**Terms & Conditions :-", left + 8, termsTop + 8, {
-    width: totalsLeft - left - 16,
-    align: "center",
-  });
-
-  doc.font(FONT_REGULAR).fontSize(8.5);
-  TERMS_AND_CONDITIONS.forEach((term, index) => {
-    doc.text(`${index + 1}. ${term}`, left + 12, termsTop + 28 + index * 14, {
-      width: totalsLeft - left - 24,
-    });
-  });
-
+  // Terms
   doc.font(FONT_BOLD).fontSize(9);
-  doc.text(JURISDICTION_LINE, left + 8, outerBottom - 28, {
-    width: totalsLeft - left - 16,
-    align: "center",
+  text(
+    doc,
+    "**Terms & Conditions :-",
+    L.left + 6,
+    L.bankBottom + 3.5,
+    L.cols.qty - L.left - 12,
+    { align: "center" },
+  );
+
+  doc.font(FONT_REGULAR).fontSize(7.5);
+  TERMS_AND_CONDITIONS.forEach((term, index) => {
+    text(
+      doc,
+      `${index + 1}. ${term}`,
+      L.left + 10,
+      L.termsTitleBottom + 5 + index * 10,
+      L.cols.qty - L.left - 18,
+    );
   });
+
+  doc.font(FONT_BOLD).fontSize(8);
+  text(
+    doc,
+    JURISDICTION_LINE,
+    L.left + 6,
+    L.bottom - 14,
+    L.cols.qty - L.left - 12,
+    { align: "center" },
+  );
 
   doc.end();
   return done;

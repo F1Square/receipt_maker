@@ -1,6 +1,12 @@
 import { NextResponse } from "next/server";
 import { generateInvoicePdf } from "@/lib/generateInvoicePdf";
 import type { ReceiptData } from "@/lib/types";
+import {
+  validateGoods,
+  validateInvoiceMeta,
+  validateInvoiceTo,
+  validateSettings,
+} from "@/lib/validation";
 
 function isValidPayload(body: unknown): body is ReceiptData {
   if (!body || typeof body !== "object") return false;
@@ -24,22 +30,20 @@ export async function POST(request: Request) {
       );
     }
 
-    if (!body.business.name.trim()) {
-      return NextResponse.json(
-        { error: "Business name is required." },
-        { status: 400 },
-      );
+    const settingsError = validateSettings({
+      business: body.business,
+      bank: body.bank,
+    });
+    if (settingsError) {
+      return NextResponse.json({ error: settingsError }, { status: 400 });
     }
 
-    if (
-      !body.goods.some(
-        (g) => g.description.trim() && Number(g.qty) > 0 && Number(g.rate) > 0,
-      )
-    ) {
-      return NextResponse.json(
-        { error: "Add at least one goods line with quantity and rate." },
-        { status: 400 },
-      );
+    const invoiceError =
+      validateInvoiceTo(body.invoiceTo) ||
+      validateInvoiceMeta(body.invoice) ||
+      validateGoods(body.goods);
+    if (invoiceError) {
+      return NextResponse.json({ error: invoiceError }, { status: 400 });
     }
 
     const pdf = await generateInvoicePdf(body);

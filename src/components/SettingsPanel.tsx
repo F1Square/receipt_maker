@@ -67,7 +67,7 @@ export function SettingsPanel({
       },
       bank: {
         ...draft.bank,
-        ifscCode: draft.bank.ifscCode.trim().toUpperCase(),
+        ifscCode: draft.bank.ifscCode.trim().toUpperCase().slice(0, 11),
       },
     });
     onClose();
@@ -148,14 +148,14 @@ export function SettingsPanel({
                 required
               />
               <FormField
-                label="GSTIN number"
-                name="businessGstin"
+                label="GST / PAN"
+                name="businessGstPan"
                 mode="alphanumeric"
                 value={draft.business.gstin}
                 onChange={(v) => updateBusiness("gstin", v)}
-                placeholder="24CYKPB5375F1ZH"
-                hint="15-character GSTIN"
-                maxLength={15}
+                placeholder="GSTIN or PAN"
+                hint="Mandatory · no format check"
+                maxLength={20}
                 required
               />
             </div>
@@ -197,21 +197,16 @@ export function SettingsPanel({
               <FormField
                 label="IFSC code"
                 name="ifscCode"
-                mode="alphanumeric"
+                mode="ifsc"
                 value={draft.bank.ifscCode}
                 onChange={(v) => updateBank("ifscCode", v)}
                 placeholder="CNRB0007376"
-                hint="11 characters, e.g. CNRB0007376"
+                hint="4 letters + 0 + 6 branch chars (e.g. CNRB0007376)"
                 maxLength={11}
                 required
               />
             </div>
           </section>
-
-          <p className="rounded-lg border border-[var(--line)] bg-white/70 px-3 py-2 text-sm text-[var(--ink-soft)]">
-            Terms & conditions stay fixed from your demo invoice and are not
-            editable here.
-          </p>
 
           {error ? (
             <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">

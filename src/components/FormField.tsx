@@ -4,6 +4,7 @@ import {
   sanitizeAddress,
   sanitizeAlphanumeric,
   sanitizeDecimal,
+  sanitizeIfsc,
   sanitizeTextName,
   normalizeIndianPhone,
 } from "@/lib/validation";
@@ -15,6 +16,7 @@ export type FieldMode =
   | "digits"
   | "decimal"
   | "alphanumeric"
+  | "ifsc"
   | "free";
 
 type FormFieldProps = {
@@ -46,6 +48,8 @@ function applyMode(mode: FieldMode, raw: string): string {
       return sanitizeDecimal(raw);
     case "alphanumeric":
       return sanitizeAlphanumeric(raw);
+    case "ifsc":
+      return sanitizeIfsc(raw);
     case "free":
     default:
       return raw;

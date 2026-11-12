@@ -92,9 +92,34 @@ export function isGstinOrPan(value: string): boolean {
   return isGstin(v) || isPan(v);
 }
 
-/** IFSC: 4 letters + 0 + 6 alphanumeric */
+/**
+ * IFSC format:
+ * - First 4 characters: letters (bank code)
+ * - 5th character: always 0
+ * - Last 6 characters: letters or digits (branch code)
+ */
 export function isIfsc(value: string): boolean {
   return /^[A-Z]{4}0[A-Z0-9]{6}$/.test(value.trim().toUpperCase());
+}
+
+/** Keep IFSC typing on-format: 4 letters + 0 + up to 6 branch chars. */
+export function sanitizeIfsc(value: string): string {
+  const cleaned = value.replace(/[^A-Za-z0-9]/g, "").toUpperCase();
+  let result = "";
+  for (const ch of cleaned) {
+    if (result.length >= 11) break;
+    if (result.length < 4) {
+      if (/[A-Z]/.test(ch)) result += ch;
+      continue;
+    }
+    if (result.length === 4) {
+      result += "0";
+      if (ch !== "0" && /[A-Z0-9]/.test(ch)) result += ch;
+      continue;
+    }
+    if (/[A-Z0-9]/.test(ch)) result += ch;
+  }
+  return result;
 }
 
 export function validateTextRequired(
@@ -144,13 +169,12 @@ export function validateSettings(settings: {
     ifscCode: string;
   };
 }): string | null {
+  const gstPan = settings.business.gstin.trim();
   return (
     validateTextRequired("Business name", settings.business.name) ||
     validateTextRequired("Business address", settings.business.address) ||
     validateIndianPhone("Business contact no", settings.business.contactNo) ||
-    (!isGstin(settings.business.gstin)
-      ? "Business GSTIN must be a valid 15-character GSTIN."
-      : null) ||
+    (!gstPan ? "GST / PAN is required." : null) ||
     validateTextRequired("Bank name", settings.bank.bankName) ||
     validateTextRequired(
       "Account holder name",
@@ -161,7 +185,7 @@ export function validateSettings(settings: {
       ? "Account no must be at least 9 digits."
       : null) ||
     (!isIfsc(settings.bank.ifscCode)
-      ? "IFSC must be 11 characters (e.g. CNRB0007376)."
+      ? "IFSC must be 11 chars: AAAA0XXXXXX (4 letters + 0 + 6 branch chars)."
       : null)
   );
 }
